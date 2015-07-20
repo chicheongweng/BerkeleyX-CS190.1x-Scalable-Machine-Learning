@@ -91,7 +91,7 @@ import numpy as np
 from pyspark.mllib.linalg import SparseVector
 
 
-# In[145]:
+# In[6]:
 
 # TODO: Replace <FILL IN> with appropriate code
 aDense = np.array([0., 3., 0., 4.])
@@ -164,7 +164,7 @@ Test.assertEqualsHashed(sampleThreeOHEFeatManual,
 # #### **(1d) Define a OHE function **
 # #### Next we will use the OHE dictionary from Part (1a) to programatically generate OHE features from the original categorical data.  First write a function called `oneHotEncoding` that creates OHE feature vectors in `SparseVector` format.  Then use this function to create OHE features for the first sample data point and verify that the result matches the result from Part (1c).
 
-# In[75]:
+# In[11]:
 
 # TODO: Replace <FILL IN> with appropriate code
 def oneHotEncoding(rawFeats, OHEDict, numOHEFeats):
@@ -185,19 +185,8 @@ def oneHotEncoding(rawFeats, OHEDict, numOHEFeats):
             identifiers for the (featureID, value) combinations that occur in the observation and
             with values equal to 1.0.
     """
-    print "rawFeats: ",rawFeats
-    print "OHEDict: ",OHEDict
-    print "numOHEFeats: ",numOHEFeats
-    indices = []
-    k = OHEDict.keys()
-    for t in rawFeats:
-        if t in k:
-            indices = indices + [OHEDict[t]]
-    indices = sorted(indices)
-    return SparseVector(numOHEFeats, dict([(x, 1.0) for x in indices]))
-
-    #indices = sorted([OHEDict[t] for t in rawFeats])
-    #return SparseVector(numOHEFeats, dict([(x, 1.0) for x in indices]))
+    indices = {OHEDict[i]:1.0 for i in rawFeats}
+    return SparseVector(numOHEFeats, indices)
 
 # Calculate the number of features in sampleOHEDictManual
 numSampleOHEFeats = len(sampleOHEDictManual)
@@ -451,7 +440,7 @@ Test.assertEquals(nTest, 10014, 'incorrect value for nTest')
 # #### ** (3b) Extract features **
 # #### We will now parse the raw training data to create an RDD that we can subsequently use to create an OHE dictionary. Note from the `take()` command in Part (3a) that each raw data point is a string containing several fields separated by some delimiter.  For now, we will ignore the first field (which is the 0-1 label), and parse the remaining fields (or raw features).  To do this, complete the implemention of the `parsePoint` function.
 
-# In[85]:
+# In[26]:
 
 # TODO: Replace <FILL IN> with appropriate code
 def parsePoint(point):
@@ -502,6 +491,7 @@ ctrOHEDict = createOneHotDict(parsedTrainFeat)
 numCtrOHEFeats = len(ctrOHEDict.keys())
 print numCtrOHEFeats
 print ctrOHEDict[(0, '')]
+ctrOHEDictBroadcast = sc.broadcast(ctrOHEDict)
 
 
 # In[29]:
@@ -516,7 +506,7 @@ Test.assertTrue((0, '') in ctrOHEDict, 'incorrect features in ctrOHEDict')
 # #### ** (3d) Apply OHE to the dataset **
 # #### Now let's use this OHE dictionary by starting with the raw training data and creating an RDD of [LabeledPoint](http://spark.apache.org/docs/1.3.1/api/python/pyspark.mllib.html#pyspark.mllib.regression.LabeledPoint) objects using OHE features.  To do this, complete the implementation of the `parseOHEPoint` function. Hint: `parseOHEPoint` is an extension of the `parsePoint` function from Part (3b) and it uses the `oneHotEncoding` function from Part (1d).
 
-# In[ ]:
+# In[30]:
 
 from pyspark.mllib.regression import LabeledPoint
 
@@ -542,11 +532,11 @@ def parseOHEPoint(point, OHEDict, numOHEFeats):
             raw features based on the provided OHE dictionary.
     """
     label = point.split(',')[0]
-    return LabeledPoint(label, oneHotEncoding(parsePoint(point), OHEDict, numOHEFeats))
+    OHE = oneHotEncoding(parsePoint(point), OHEDict, numOHEFeats)
+    return LabeledPoint(label, OHE)
 
-OHETrainData = rawTrainData.map(lambda point: parseOHEPoint(point, ctrOHEDict, numCtrOHEFeats))
+OHETrainData = rawTrainData.map(lambda point: parseOHEPoint(point, ctrOHEDictBroadcast.value, numCtrOHEFeats))
 OHETrainData.cache()
-print OHETrainData.take(1)
 
 # Check that oneHotEncoding function was used in parseOHEPoint
 backupOneHot = oneHotEncoding
@@ -646,13 +636,16 @@ def oneHotEncoding(rawFeats, OHEDict, numOHEFeats):
             identifiers for the (featureID, value) combinations that occur in the observation and
             with values equal to 1.0.
     """
-    indices = []
-    k = OHEDict.keys()
-    for t in rawFeats:
-        if t in k:
-            indices = indices + [OHEDict[t]]
-    indices = sorted(indices)
-    return SparseVector(numOHEFeats, dict([(x, 1.0) for x in indices]))
+    
+    indices = {}
+    for i in rawFeats:
+        try:
+            v = OHEDict[i]
+            indices[v] = 1.0
+        except:
+            pass
+
+    return SparseVector(numOHEFeats, indices)
     
 OHEValidationData = rawValidationData.map(lambda point: parseOHEPoint(point, ctrOHEDict, numCtrOHEFeats))
 OHEValidationData.cache()
@@ -826,7 +819,7 @@ Test.assertTrue(np.allclose(trainingPredictions.sum(), 18135.4834348),
 # #### ** (4e) Evaluate the model **
 # #### We are now ready to evaluate the quality of the model we trained in Part (4a). To do this, first write a general function that takes as input a model and data, and outputs the log loss.  Then run this function on the OHE training data, and compare the result with the baseline log loss.
 
-# In[61]:
+# In[46]:
 
 # TODO: Replace <FILL IN> with appropriate code
 def evaluateResults(model, data):
@@ -847,7 +840,7 @@ print ('OHE Features Train Logloss:\n\tBaseline = {0:.3f}\n\tLogReg = {1:.3f}'
        .format(logLossTrBase, logLossTrLR0))
 
 
-# In[62]:
+# In[47]:
 
 # TEST Evaluate the model (4e)
 Test.assertTrue(np.allclose(logLossTrLR0, 0.456903), 'incorrect value for logLossTrLR0')
@@ -856,7 +849,7 @@ Test.assertTrue(np.allclose(logLossTrLR0, 0.456903), 'incorrect value for logLos
 # #### ** (4f) Validation log loss **
 # #### Next, following the same logic as in Parts (4c) and 4(e), compute the validation log loss for both the baseline and logistic regression models. Notably, the baseline model for the validation data should still be based on the label fraction from the training dataset.
 
-# In[66]:
+# In[48]:
 
 # TODO: Replace <FILL IN> with appropriate code
 logLossValBase = OHEValidationData.map(lambda x:computeLogLoss(classOneFracTrain, x.label)).sum()/OHEValidationData.count()
@@ -866,7 +859,7 @@ print ('OHE Features Validation Logloss:\n\tBaseline = {0:.3f}\n\tLogReg = {1:.3
        .format(logLossValBase, logLossValLR0))
 
 
-# In[67]:
+# In[49]:
 
 # TEST Validation log loss (4f)
 Test.assertTrue(np.allclose(logLossValBase, 0.527603), 'incorrect value for logLossValBase')
@@ -876,7 +869,7 @@ Test.assertTrue(np.allclose(logLossValLR0, 0.456957), 'incorrect value for logLo
 # #### **Visualization 2: ROC curve **
 # #### We will now visualize how well the model predicts our target.  To do this we generate a plot of the ROC curve.  The ROC curve shows us the trade-off between the false positive rate and true positive rate, as we liberalize the threshold required to predict a positive outcome.  A random model is represented by the dashed line.
 
-# In[65]:
+# In[50]:
 
 labelsAndScores = OHEValidationData.map(lambda lp:
                                             (lp.label, getP(lp.features, model0.weights, model0.intercept)))
@@ -908,7 +901,7 @@ pass
 # #### As we just saw, using a one-hot-encoding featurization can yield a model with good statistical accuracy.  However, the number of distinct categories across all features is quite large -- recall that we observed 233K categories in the training data in Part (3c).  Moreover, the full Kaggle training dataset includes more than 33M distinct categories, and the Kaggle dataset itself is just a small subset of Criteo's labeled data.  Hence, featurizing via a one-hot-encoding representation would lead to a very large feature vector. To reduce the dimensionality of the feature space, we will use feature hashing.
 # ####Below is the hash function that we will use for this part of the lab.  We will first use this hash function with the three sample data points from Part (1a) to gain some intuition.  Specifically, run code to hash the three sample points using two different values for `numBuckets` and observe the resulting hashed feature dictionaries.
 
-# In[78]:
+# In[51]:
 
 from collections import defaultdict
 import hashlib
@@ -948,7 +941,7 @@ def hashFunction(numBuckets, rawFeats, printMapping=False):
 # sampleThree =  [(0, 'bear'), (1, 'black'), (2, 'salmon')]
 
 
-# In[79]:
+# In[52]:
 
 # TODO: Replace <FILL IN> with appropriate code
 # Use four buckets
@@ -967,7 +960,7 @@ print 'SampleTwo:\t {0}\t\t {1}'.format(sampTwoFourBuckets, sampTwoHundredBucket
 print 'SampleThree:\t {0}\t {1}'.format(sampThreeFourBuckets, sampThreeHundredBuckets)
 
 
-# In[96]:
+# In[53]:
 
 # TEST Hash function (5a)
 Test.assertEquals(sampOneFourBuckets, {2: 1.0, 3: 1.0}, 'incorrect value for sampOneFourBuckets')
@@ -978,7 +971,7 @@ Test.assertEquals(sampThreeHundredBuckets, {72: 1.0, 5: 1.0, 14: 1.0},
 # #### ** (5b) Creating hashed features **
 # #### Next we will use this hash function to create hashed features for our CTR datasets. First write a function that uses the hash function from Part (5a) with numBuckets = $ \scriptsize 2^{15} \approx 33K $ to create a `LabeledPoint` with hashed features stored as a `SparseVector`.  Then use this function to create new training, validation and test datasets with hashed features. Hint: `parsedHashPoint` is similar to `parseOHEPoint` from Part (3d).
 
-# In[110]:
+# In[54]:
 
 # TODO: Replace <FILL IN> with appropriate code
 def parseHashPoint(point, numBuckets):
@@ -1012,7 +1005,7 @@ hashTestData.cache()
 print hashTrainData.take(1)
 
 
-# In[111]:
+# In[55]:
 
 # TEST Creating hashed features (5b)
 hashTrainDataFeatureSum = sum(hashTrainData
@@ -1047,7 +1040,7 @@ Test.assertEquals(hashTestDataLabelSum, 23.0, 'incorrect labels in hashTestData'
 # #### Since we have 33K hashed features versus 233K OHE features, we should expect OHE features to be sparser. Verify this hypothesis by computing the average sparsity of the OHE and the hashed training datasets.
 # #### Note that if you have a `SparseVector` named `sparse`, calling `len(sparse)` returns the total number of features, not the number features with entries.  `SparseVector` objects have the attributes `indices` and `values` that contain information about which features are nonzero.  Continuing with our example, these can be accessed using `sparse.indices` and `sparse.values`, respectively.
 
-# In[146]:
+# In[56]:
 
 # TODO: Replace <FILL IN> with appropriate code
 def computeSparsity(data, d, n):
@@ -1075,7 +1068,7 @@ print 'Average OHE Sparsity: {0:.7e}'.format(averageSparsityOHE)
 print 'Average Hash Sparsity: {0:.7e}'.format(averageSparsityHash)
 
 
-# In[147]:
+# In[57]:
 
 # TEST Sparsity (5c)
 Test.assertTrue(np.allclose(averageSparsityOHE, 1.6717677e-04),
@@ -1087,7 +1080,7 @@ Test.assertTrue(np.allclose(averageSparsityHash, 1.1805561e-03),
 # #### ** (5d) Logistic model with hashed features **
 # #### Now let's train a logistic regression model using the hashed features. Run a grid search to find suitable hyperparameters for the hashed features, evaluating via log loss on the validation data. Note: This may take a few minutes to run. Use `1` and `10` for `stepSizes` and `1e-6` and `1e-3` for `regParams`.
 
-# In[133]:
+# In[58]:
 
 numIters = 500
 regType = 'l2'
@@ -1098,7 +1091,7 @@ bestModel = None
 bestLogLoss = 1e10
 
 
-# In[134]:
+# In[59]:
 
 # TODO: Replace <FILL IN> with appropriate code
 stepSizes = [1, 10]
@@ -1119,7 +1112,7 @@ print ('Hashed Features Validation Logloss:\n\tBaseline = {0:.3f}\n\tLogReg = {1
        .format(logLossValBase, bestLogLoss))
 
 
-# In[135]:
+# In[60]:
 
 # TEST Logistic model with hashed features (5d)
 Test.assertTrue(np.allclose(bestLogLoss, 0.4481683608), 'incorrect value for bestLogLoss')
@@ -1129,7 +1122,7 @@ Test.assertTrue(np.allclose(bestLogLoss, 0.4481683608), 'incorrect value for bes
 # #### We will now perform a visualization of an extensive hyperparameter search.  Specifically, we will create a heat map where the brighter colors correspond to lower values of `logLoss`.
 # #### The search was run using six step sizes and six values for regularization, which required the training of thirty-six separate models.  We have included the results below, but omitted the actual search to save time.
 
-# In[136]:
+# In[61]:
 
 from matplotlib.colors import LinearSegmentedColormap
 
@@ -1161,7 +1154,7 @@ pass
 # #### ** (5e) Evaluate on the test set **
 # #### Finally, evaluate the best model from Part (5d) on the test set.  Compare the resulting log loss with the baseline log loss on the test set, which can be computed in the same way that the validation log loss was computed in Part (4f).
 
-# In[139]:
+# In[62]:
 
 # TODO: Replace <FILL IN> with appropriate code
 # Log loss for the best model from (5d)
@@ -1174,7 +1167,7 @@ print ('Hashed Features Test Log Loss:\n\tBaseline = {0:.3f}\n\tLogReg = {1:.3f}
        .format(logLossTestBaseline, logLossTest))
 
 
-# In[140]:
+# In[63]:
 
 # TEST Evaluate on the test set (5e)
 Test.assertTrue(np.allclose(logLossTestBaseline, 0.537438),
